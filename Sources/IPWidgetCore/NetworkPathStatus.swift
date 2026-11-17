@@ -63,6 +63,10 @@ public final class NetworkPathMonitor: @unchecked Sendable {
         monitor.start(queue: queue)
     }
 
+    public var currentStatus: NetworkPathStatus {
+        NetworkPathStatus(path: monitor.currentPath)
+    }
+
     public func cancel() {
         monitor.cancel()
     }

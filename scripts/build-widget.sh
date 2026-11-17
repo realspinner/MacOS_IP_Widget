@@ -4,8 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-VERSION="${VERSION:-1.0.22}"
-BUILD_NUMBER="${BUILD_NUMBER:-23}"
+VERSION="${VERSION:-1.1.0}"
+BUILD_NUMBER="${BUILD_NUMBER:-32}"
 # Keep the verified WidgetKit SDK; callers can explicitly select another SDK.
 SDK="${SDK:-$(xcrun --sdk macosx26.5 --show-sdk-path)}"
 # Darwin clang also needs SDKROOT when Swift invokes the linker.
@@ -27,11 +27,11 @@ swiftc \
     "$ROOT/Sources/IPWidgetCore/IPv4Address.swift" \
     "$ROOT/Sources/IPWidgetCore/Country.swift" \
     "$ROOT/Sources/IPWidgetCore/GeoInfo.swift" \
+    "$ROOT/Sources/IPWidgetCore/IPProvider.swift" \
     "$ROOT/Sources/IPWidgetCore/TwoIPClient.swift" \
-    "$ROOT/Sources/IPWidgetCore/MultiIPClient.swift" \
-    "$ROOT/Sources/IPWidgetCore/LocalGeoIP.swift" \
+    "$ROOT/Sources/IPWidgetCore/IPRating.swift" \
     "$ROOT/Sources/IPWidgetCore/WidgetStatus.swift" \
-    "$ROOT/Sources/IPWidgetCore/WidgetSnapshotLoader.swift" \
+    "$ROOT/Sources/IPWidgetCore/SharedWidgetSnapshot.swift" \
     "$ROOT/Sources/IPWidgetCore/IPWidgetConstants.swift" \
     "$ROOT/Sources/IPWidgetUI/L10n.swift" \
     "$ROOT/Sources/IPWidgetUI/WidgetCard.swift" \
@@ -49,7 +49,6 @@ cp "$ROOT/Resources/ru.lproj/Localizable.strings" "$OUT/Contents/Resources/ru.lp
 cp "$ROOT/Resources/en.lproj/Localizable.strings" "$OUT/Contents/Resources/en.lproj/Localizable.strings"
 cp "$ROOT/Resources/Flags/"*.png "$OUT/Contents/Resources/"
 
-cp "$ROOT/Sources/IPWidgetCore/Resources/"* "$OUT/Contents/Resources/"
 
 printf 'XPC!????' > "$OUT/Contents/PkgInfo"
 

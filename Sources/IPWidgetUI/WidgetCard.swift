@@ -12,6 +12,7 @@ import IPWidgetCore
 public struct WidgetCard: View {
     private static let logger = Logger(subsystem: "dev.spinner.ipwidget", category: "widget")
 
+    private let rating: IPRating?
     private let status: WidgetStatus
     private let interfaceName: String?
     private let lastUpdated: Date?
@@ -21,9 +22,11 @@ public struct WidgetCard: View {
         status: WidgetStatus,
         interfaceName: String? = nil,
         lastUpdated: Date? = nil,
+        rating: IPRating? = nil,
         locale: Locale = .current
     ) {
         self.status = status
+        self.rating = rating
         self.interfaceName = interfaceName
         self.lastUpdated = lastUpdated
         self.locale = locale
@@ -33,9 +36,14 @@ public struct WidgetCard: View {
         GeometryReader { proxy in
             let side = min(proxy.size.width, proxy.size.height)
             VStack(spacing: 0) {
-                Spacer(minLength: 0)
+                if !status.isOnline { Spacer(minLength: 0) }
                 stage(side: side)
                 Spacer(minLength: 0)
+                if case .online(let geo) = status {
+                    ratingRow(for: geo, side: side)
+                        .padding(.top, side * 0.045)
+                        .padding(.bottom, side * 0.060)
+                }
                 footer(side: side)
             }
             .padding(.horizontal, side * 0.040)
@@ -53,6 +61,8 @@ public struct WidgetCard: View {
     @ViewBuilder
     private func stage(side: CGFloat) -> some View {
         switch status {
+        case .updating:
+            updating(side: side)
         case .loading:
             loading(side: side)
         case .online(let geo):
@@ -67,7 +77,7 @@ public struct WidgetCard: View {
             FlagView(
                 countryCode: geo.countryCode,
                 fallback: geo.flag,
-                height: side * 0.600
+                height: side * 0.470
             )
             .accessibilityLabel(countryName(for: geo))
 
@@ -87,6 +97,47 @@ public struct WidgetCard: View {
         }
     }
 
+    @ViewBuilder
+    private func ratingRow(for geo: GeoInfo, side: CGFloat) -> some View {
+        if let rating, rating.ip == geo.ip {
+            HStack(spacing: side * 0.035) {
+                RatingScaleView(percent: rating.percent, side: side)
+                    .frame(height: side * 0.075)
+                Text("\(rating.percent)%")
+                    .font(.system(size: side * 0.070, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .fixedSize()
+                if rating.isVPNOrProxy {
+                    RatingVPNIcon()
+                        .font(.system(size: side * 0.075, weight: .semibold))
+                        .accessibilityLabel("VPN / Proxy")
+                }
+            }
+            .padding(.horizontal, side * 0.055)
+            .help("Synthetic IP reputation: \(rating.percent)%. Not a guarantee of Claude access.")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("IP rating \(rating.percent) percent\(rating.isVPNOrProxy ? ", VPN or proxy detected" : "")")
+        } else {
+            Text("rating check...")
+                .font(.system(size: side * 0.065, weight: .medium, design: .rounded))
+                .foregroundStyle(.secondary)
+                .frame(height: side * 0.070)
+        }
+    }
+
+    private func updating(side: CGFloat) -> some View {
+        VStack(spacing: side * 0.005) {
+            Text("?")
+                .font(.system(size: side * 0.60, weight: .semibold, design: .rounded))
+                .foregroundStyle(.secondary)
+                .frame(height: side * 0.65)
+            Text(t(.updatingData))
+                .font(.system(size: side * 0.083, weight: .semibold, design: .rounded))
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
+        }
+    }
+
     private func loading(side: CGFloat) -> some View {
         VStack(spacing: side * 0.040) {
             ProgressView()
@@ -101,18 +152,18 @@ public struct WidgetCard: View {
 
     private func unavailable(_ reason: UnavailableReason, side: CGFloat) -> some View {
         VStack(spacing: side * 0.008) {
-            Image(systemName: "exclamationmark.triangle.fill")
+            Image(systemName: reason == .appNotRunning ? "arrow.up.forward.app.fill" : "exclamationmark.triangle.fill")
                 .font(.system(size: side * 0.450, weight: .regular))
-                .foregroundStyle(.red)
+                .foregroundStyle(reason == .appNotRunning ? .orange : .red)
                 .frame(height: side * 0.510)
-                .accessibilityLabel(t(.noConnection))
+                .accessibilityLabel(t(reason == .appNotRunning ? .openApp : .noConnection))
 
-            Text(reason == .noConnection ? t(.noConnection) : t(.noResponse))
+            Text(t(reason == .appNotRunning ? .openApp : (reason == .noConnection ? .noConnection : .noResponse)))
                 .font(.system(size: side * 0.090, weight: .semibold, design: .rounded))
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
 
-            Text(reason == .noConnection ? t(.checkNetwork) : t(.serviceUnavailable))
+            Text(t(reason == .appNotRunning ? .startApp : (reason == .noConnection ? .checkNetwork : .serviceUnavailable)))
                 .font(.system(size: side * 0.055, weight: .medium, design: .rounded))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -141,22 +192,27 @@ public struct WidgetCard: View {
         switch status {
         case .online: return "dot_green"
         case .unavailable: return "dot_red"
-        case .loading: return "dot_gray"
+        case .loading, .updating: return "dot_gray"
         }
     }
 
     private var statusColor: Color {
         switch status {
         case .online: return .green
+        case .unavailable(.appNotRunning): return .orange
         case .unavailable: return .red
-        case .loading: return .secondary
+        case .loading, .updating: return .secondary
         }
     }
 
     private var footerText: String {
         switch status {
+        case .updating:
+            return "IPv4"
         case .loading:
             return t(.checking)
+        case .unavailable(.appNotRunning):
+            return t(.dataExpired)
         case .unavailable:
             return "IPv4"
         case .online:

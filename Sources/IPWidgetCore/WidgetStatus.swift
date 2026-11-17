@@ -1,11 +1,13 @@
 import Foundation
 
-public enum UnavailableReason: Equatable, Sendable {
+public enum UnavailableReason: String, Codable, Equatable, Sendable {
+    case appNotRunning
     case noConnection
     case serviceUnavailable
 }
 
-public enum WidgetStatus: Equatable, Sendable {
+public enum WidgetStatus: Codable, Equatable, Sendable {
+    case updating
     case loading
     case online(GeoInfo)
     case unavailable(UnavailableReason)

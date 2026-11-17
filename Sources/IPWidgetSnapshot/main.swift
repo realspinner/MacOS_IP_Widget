@@ -13,6 +13,7 @@ private enum SnapshotError: Error {
 private func render(
     status: WidgetStatus,
     scheme: ColorScheme,
+    rating: IPRating? = nil,
     renderingMode: WidgetRenderingMode = .fullColor,
     to url: URL
 ) throws {
@@ -35,7 +36,8 @@ private func render(
             status: status,
             interfaceName: nil,
             lastUpdated: fixedDate,
-            locale: Locale(identifier: "ru_RU")
+            rating: rating,
+            locale: Locale(identifier: "en_US")
         )
         .frame(width: 164, height: 164)
         .background {
@@ -64,7 +66,7 @@ private func render(
     .frame(width: 220, height: 220)
     .environment(\.colorScheme, scheme)
     .environment(\.widgetRenderingMode, renderingMode)
-    .environment(\.locale, Locale(identifier: "ru_RU"))
+    .environment(\.locale, Locale(identifier: "en_US"))
 
     let renderer = ImageRenderer(content: content)
     renderer.scale = 3
@@ -85,6 +87,15 @@ private func renderSnapshots(to directory: URL) throws {
     let ip = IPv4Address(rawValue: 0x2D9F_0C07) // 45.159.12.7
     let geo = GeoInfo(ip: ip, countryCode: "SE", countryName: "Sweden")
 
+    for (name, risk, vpn) in [("clean", 0, false), ("vpn", 73, true), ("risk", 100, true)] {
+        let rating = IPRating(ip: ip, risk: risk, vpn: vpn, proxy: false, hosting: vpn, tor: false, compromised: risk == 100)
+        try render(status: .online(geo), scheme: .dark, rating: rating,
+                   to: directory.appendingPathComponent("rating-\(name)-dark.png"))
+        try render(status: .online(geo), scheme: .light, rating: rating, renderingMode: .accented,
+                   to: directory.appendingPathComponent("rating-\(name)-muted-light.png"))
+        try render(status: .online(geo), scheme: .light, rating: rating,
+                   to: directory.appendingPathComponent("rating-\(name)-light.png"))
+    }
     try render(status: .online(geo), scheme: .dark, to: directory.appendingPathComponent("online-dark.png"))
     try render(status: .online(geo), scheme: .light, to: directory.appendingPathComponent("online-light.png"))
     try render(
@@ -94,6 +105,10 @@ private func renderSnapshots(to directory: URL) throws {
         to: directory.appendingPathComponent("online-muted-light.png")
     )
     try render(status: .unavailable(.noConnection), scheme: .light, to: directory.appendingPathComponent("offline-light.png"))
+    try render(status: .unavailable(.appNotRunning), scheme: .light, to: directory.appendingPathComponent("expired-light.png"))
+    try render(status: .unavailable(.appNotRunning), scheme: .dark, to: directory.appendingPathComponent("expired-dark.png"))
+    try render(status: .updating, scheme: .light, to: directory.appendingPathComponent("updating-light.png"))
+    try render(status: .updating, scheme: .dark, to: directory.appendingPathComponent("updating-dark.png"))
     try render(status: .loading, scheme: .dark, to: directory.appendingPathComponent("loading-dark.png"))
 
     print("Snapshots written to \(directory.path)")

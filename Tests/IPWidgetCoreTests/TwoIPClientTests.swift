@@ -170,7 +170,7 @@ extension TwoIPClientTests {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [StubURLProtocol.self]
         StubURLProtocol.handler = { request in
-            let status = request.url?.host == "api.2ip.io" ? 503 : 200
+            let status = 200
             let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
             return (response, Data(#"{"ip":"8.8.8.8"}"#.utf8))
         }
@@ -178,7 +178,7 @@ extension TwoIPClientTests {
         let geo = try await client.currentGeo()
         #expect(geo.ip.description == "8.8.8.8")
         #expect(geo.countryCode == "US")
-        #expect(StubURLProtocol.lastRequest?.url?.host == "api.ipify.org")
+        #expect(StubURLProtocol.lastRequest?.url?.host == "api.2ip.io")
     }
 
     @Test func validatesRangesAndBoundaries() {
@@ -187,5 +187,173 @@ extension TwoIPClientTests {
         #expect(LocalGeoIP.valid(data))
         #expect(!LocalGeoIP.valid(Data(data.dropLast())))
         #expect(!LocalGeoIP.valid(data + data))
+    }
+}
+
+extension TwoIPClientTests {
+    @Test func networkChangeClearsProviderCooldowns() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = MultiIPClient(session: session, startIndex: 0)
+        StubURLProtocol.handler = { request in
+            (try self.response(request, status: 503), Data())
+        }
+        do {
+            _ = try await client.currentGeo()
+            Issue.record("Expected all providers to fail")
+        } catch {}
+
+        StubURLProtocol.handler = { request in
+            (try self.response(request), Data(#"{"ip":"8.8.8.8","code":"US"}"#.utf8))
+        }
+        await client.networkDidChange()
+        let geo = try await client.currentGeo()
+        #expect(geo.ip.description == "8.8.8.8")
+    }
+    @Test func transitionProbeBypassesDisconnectCooldown() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = MultiIPClient(session: session, startIndex: 0)
+        StubURLProtocol.handler = { request in
+            (try self.response(request, status: 503), Data())
+        }
+        do { _ = try await client.currentGeo() } catch {}
+        StubURLProtocol.handler = { request in
+            (try self.response(request), Data(#"{"ip":"8.8.8.8","code":"US"}"#.utf8))
+        }
+        let geo = try await client.currentGeoForNetworkTransition()
+        #expect(geo.ip.description == "8.8.8.8")
+    }
+
+    @Test func unavailableProvidersAreTriedInPriorityOrder() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        var hosts: [String] = []
+        StubURLProtocol.handler = { request in
+            hosts.append(request.url?.host ?? "")
+            return (try self.response(request, status: 503), Data())
+        }
+        let client = MultiIPClient(session: session)
+        do {
+            _ = try await client.currentGeo()
+            Issue.record("Expected an unavailable service")
+        } catch {}
+        #expect(hosts == ["api.2ip.io", "ipv4.icanhazip.com"])
+        hosts.removeAll()
+        do {
+            _ = try await client.currentGeoForNetworkTransition()
+            Issue.record("Expected an unavailable service")
+        } catch {}
+        #expect(hosts == ["api.2ip.io", "ipv4.icanhazip.com"])
+    }
+
+    @Test func rateLimitSurvivesNetworkResetAndTransitionProbes() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        var requests = 0
+        StubURLProtocol.handler = { request in
+            requests += 1
+            return (HTTPURLResponse(url: request.url!, statusCode: 429, httpVersion: nil,
+                                    headerFields: ["Retry-After": "120"])!, Data())
+        }
+        let client = MultiIPClient(session: session)
+        do { _ = try await client.currentGeo() } catch {}
+        await client.networkDidChange()
+        do { _ = try await client.currentGeoForNetworkTransition() } catch {}
+        do { _ = try await client.currentGeo() } catch {}
+        #expect(requests == 2)
+        let date = try #require(await client.nextAllowedRequestDate())
+        #expect(date.timeIntervalSinceNow > 115)
+    }
+
+    @Test func retryAfterParsesSecondsDateAndDefault() {
+        let now = Date(timeIntervalSince1970: 0)
+        #expect(MultiIPClient.retryDate("120", now: now) == now.addingTimeInterval(120))
+        #expect(MultiIPClient.retryDate(nil, now: now) == now.addingTimeInterval(60))
+        #expect(MultiIPClient.retryDate("Thu, 01 Jan 1970 00:02:00 GMT", now: now) == now.addingTimeInterval(120))
+    }
+
+}
+
+
+extension TwoIPClientTests {
+    @Test func icanhazipFallbackResolvesCountryLocally() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        var hosts: [String] = []
+        StubURLProtocol.handler = { request in
+            hosts.append(request.url!.host!)
+            if request.url?.host == "api.2ip.io" { return (try self.response(request, status: 503), Data()) }
+            #expect(request.value(forHTTPHeaderField: "Accept") == "text/plain")
+            return (try self.response(request), Data("8.8.8.8\n".utf8))
+        }
+        let client = MultiIPClient(session: URLSession(configuration: configuration))
+        let geo = try await client.currentGeoForNetworkTransition()
+        #expect(geo.ip.description == "8.8.8.8")
+        #expect(geo.countryCode == "US")
+        #expect(hosts == ["api.2ip.io", "ipv4.icanhazip.com"])
+    }
+
+    @Test func preferredProviderIsAlwaysFirstAndCanBeChanged() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        var hosts: [String] = []
+        StubURLProtocol.handler = { request in
+            hosts.append(request.url!.host!)
+            let body = request.url?.host == "api.2ip.io"
+                ? #"{"ip":"8.8.8.8","code":"US"}"# : "1.1.1.1\n"
+            return (try self.response(request), Data(body.utf8))
+        }
+        let client = MultiIPClient(session: URLSession(configuration: configuration), preferredProvider: .icanhazip)
+        #expect(try await client.currentGeo().ip.description == "1.1.1.1")
+        #expect(try await client.currentGeo().ip.description == "1.1.1.1")
+        await client.setPreferredProvider(.twoIP)
+        #expect(try await client.currentGeo().ip.description == "8.8.8.8")
+        #expect(hosts == ["ipv4.icanhazip.com", "ipv4.icanhazip.com", "api.2ip.io"])
+    }
+
+    @Test func rateLimitedPreferredProviderDoesNotBlockFallback() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        var hosts: [String] = []
+        StubURLProtocol.handler = { request in
+            hosts.append(request.url!.host!)
+            if request.url?.host == "api.2ip.io" {
+                return (HTTPURLResponse(url: request.url!, statusCode: 429, httpVersion: nil,
+                                        headerFields: ["Retry-After": "120"])!, Data())
+            }
+            return (try self.response(request), Data("8.8.8.8\n".utf8))
+        }
+        let client = MultiIPClient(session: URLSession(configuration: configuration))
+        #expect(try await client.currentGeo().ip.description == "8.8.8.8")
+        await client.networkDidChange()
+        #expect(try await client.currentGeoForNetworkTransition().ip.description == "8.8.8.8")
+        #expect(hosts == ["api.2ip.io", "ipv4.icanhazip.com", "ipv4.icanhazip.com"])
+        #expect(await client.nextAllowedRequestDate() == nil)
+    }
+
+    @Test func invalidPlainTextFallsBackToTwoIP() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        for body in ["2001:db8::1", "127.0.0.1", "<html>error</html>", "8.8.8.8\n1.1.1.1"] {
+            var hosts: [String] = []
+            StubURLProtocol.handler = { request in
+                hosts.append(request.url!.host!)
+                let data = request.url?.host == "api.2ip.io"
+                    ? Data(#"{"ip":"8.8.8.8","code":"US"}"#.utf8) : Data(body.utf8)
+                return (try self.response(request), data)
+            }
+            let client = MultiIPClient(session: URLSession(configuration: configuration), preferredProvider: .icanhazip)
+            #expect(try await client.currentGeo().ip.description == "8.8.8.8")
+            #expect(hosts == ["ipv4.icanhazip.com", "api.2ip.io"])
+        }
     }
 }

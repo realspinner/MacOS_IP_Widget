@@ -3,7 +3,7 @@ import Foundation
 /// A strict, canonical IPv4 address.
 ///
 /// The textual form is always a dotted quad without leading zeroes, e.g. `45.159.12.7`.
-public struct IPv4Address: Hashable, Sendable, Comparable, CustomStringConvertible {
+public struct IPv4Address: Codable, Hashable, Sendable, Comparable, CustomStringConvertible {
     public let rawValue: UInt32
 
     public init(rawValue: UInt32) {

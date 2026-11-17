@@ -50,9 +50,13 @@ public actor LocalGeoIP {
 
     /// Check daily; download a new monthly edition without blocking IP detection.
     public func updateIfNeeded(now: Date = Date()) async {
-        guard !updating, now.timeIntervalSince(lastAttempt) > 86400 else { return }
+        let attemptKey = "geoIPLastUpdateAttempt"
+        let savedAttempt = UserDefaults.standard.object(forKey: attemptKey) as? Date ?? .distantPast
+        guard !Task.isCancelled, !updating,
+              now.timeIntervalSince(max(lastAttempt, savedAttempt)) > 86400 else { return }
         updating = true
         lastAttempt = now
+        UserDefaults.standard.set(now, forKey: attemptKey)
         defer { updating = false }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -66,32 +70,80 @@ public actor LocalGeoIP {
             let url = URL(string: "https://download.db-ip.com/free/dbip-country-lite-\(month).csv.gz")!
             var request = URLRequest(url: url)
             request.timeoutInterval = 60
-            let (file, response) = try await URLSession.shared.download(for: request)
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.timeoutIntervalForRequest = 30
+            configuration.timeoutIntervalForResource = 120
+            configuration.waitsForConnectivity = false
+            configuration.allowsExpensiveNetworkAccess = false
+            configuration.allowsConstrainedNetworkAccess = false
+            let session = URLSession(configuration: configuration)
+            defer { session.invalidateAndCancel() }
+            let (file, response) = try await session.download(for: request)
             defer { try? FileManager.default.removeItem(at: file) }
             guard (response as? HTTPURLResponse)?.statusCode == 200 else { return }
             let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
             guard size > 0, size < 20_000_000 else { return }
-            let decoded = file.appendingPathExtension("csv")
-            FileManager.default.createFile(atPath: decoded.path, contents: nil)
-            defer { try? FileManager.default.removeItem(at: decoded) }
-            let handle = try FileHandle(forWritingTo: decoded)
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/gunzip")
-            process.arguments = ["-c", file.path]
-            process.standardOutput = handle
-            process.standardError = FileHandle.nullDevice
-            try process.run()
-            process.waitUntilExit()
-            try handle.close()
-            guard process.terminationStatus == 0 else { return }
-            let csv = try String(contentsOf: decoded, encoding: .utf8)
-            let compact = Self.compact(csv)
+            // Decompression and parsing must not block country lookups on this actor.
+            let worker = Task.detached(priority: .utility) {
+                try Self.readArchive(file)
+            }
+            let compact = try await withTaskCancellationHandler {
+                try await worker.value
+            } onCancel: {
+                worker.cancel()
+            }
+            try Task.checkCancellation()
             guard compact.count > 100_000, Self.valid(compact) else { return }
             try FileManager.default.createDirectory(at: cache.deletingLastPathComponent(), withIntermediateDirectories: true)
             try compact.write(to: cache, options: .atomic)
             database = compact
             try month.write(to: marker, atomically: true, encoding: .utf8)
         } catch { /* Keep last known good edition, retry tomorrow. */ }
+    }
+
+    /// Stream decompressed rows with bounded memory instead of loading the full CSV.
+    static func readArchive(_ file: URL) throws -> Data {
+        let pipe = Pipe()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/gunzip")
+        process.arguments = ["-c", file.path]
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        // Only the child owns the writer now, so EOF is observable on the reader.
+        try pipe.fileHandleForWriting.close()
+        defer {
+            try? pipe.fileHandleForReading.close()
+            if process.isRunning { process.terminate() }
+            process.waitUntilExit()
+        }
+        var pending = Data()
+        var result = Data()
+        var expandedBytes = 0
+        while let chunk = try pipe.fileHandleForReading.read(upToCount: 64 * 1024), !chunk.isEmpty {
+            try Task.checkCancellation()
+            expandedBytes += chunk.count
+            guard expandedBytes <= 64 * 1024 * 1024 else { throw TwoIPError.invalidResponse }
+            pending.append(chunk)
+            var start = pending.startIndex
+            while let newline = pending[start...].firstIndex(of: 10) {
+                let row = pending[start..<newline]
+                guard row.count <= 1024, let text = String(data: row, encoding: .utf8) else {
+                    throw TwoIPError.invalidResponse
+                }
+                result.append(compact(text))
+                start = pending.index(after: newline)
+            }
+            pending = Data(pending[start...])
+            guard pending.count <= 1024 else { throw TwoIPError.invalidResponse }
+        }
+        if !pending.isEmpty {
+            guard let text = String(data: pending, encoding: .utf8) else { throw TwoIPError.invalidResponse }
+            result.append(compact(text))
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { throw TwoIPError.invalidResponse }
+        return result
     }
 
     static func compact(_ csv: String) -> Data {

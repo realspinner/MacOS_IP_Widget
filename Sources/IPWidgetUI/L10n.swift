@@ -4,10 +4,17 @@ import Foundation
 /// falls back to English for anything other than Russian.
 public enum L10n {
     public enum Key: String, Sendable {
+        case ipRating
+        case preferredIPProvider
+        case ipRatingExplanation
+        case openApp
+        case startApp
+        case dataExpired
         case noConnection
         case checkNetwork
         case noResponse
         case serviceUnavailable
+        case updatingData
         case checking
         case refreshing
         case network
@@ -42,10 +49,17 @@ public enum L10n {
     }
 
     private static let english: [Key: String] = [
+        .preferredIPProvider: "Preferred IP service",
+        .ipRating: "IP rating",
+        .ipRatingExplanation: "Synthetic IP reputation from ProxyCheck; not a guarantee of Claude access.",
+        .openApp: "Open IP Widget",
+        .startApp: "Launch the menu bar app",
+        .dataExpired: "Data expired",
         .noConnection: "No connection",
         .checkNetwork: "Check your Wi-Fi or cable",
         .noResponse: "No response",
         .serviceUnavailable: "IP services are unavailable",
+        .updatingData: "Updating data...",
         .checking: "Checking connection…",
         .refreshing: "Updating…",
         .network: "network",
@@ -70,10 +84,17 @@ public enum L10n {
     ]
 
     private static let russian: [Key: String] = [
+        .preferredIPProvider: "Приоритетный сервис IP",
+        .ipRating: "Рейтинг IP",
+        .ipRatingExplanation: "Синтетическая оценка репутации IP по данным ProxyCheck; не гарантирует доступ к Claude.",
+        .openApp: "Откройте IP Widget",
+        .startApp: "Запустите приложение",
+        .dataExpired: "Данные устарели",
         .noConnection: "Нет соединения",
         .checkNetwork: "Проверьте Wi-Fi или кабель",
         .noResponse: "Нет ответа",
         .serviceUnavailable: "Сервисы IP недоступны",
+        .updatingData: "Обновление данных...",
         .checking: "Проверяем соединение…",
         .refreshing: "Обновление…",
         .network: "сеть",

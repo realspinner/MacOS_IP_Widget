@@ -1,7 +1,7 @@
 import Foundation
 
 /// Geographic information returned by 2ip.io for a specific external IPv4 address.
-public struct GeoInfo: Equatable, Sendable {
+public struct GeoInfo: Codable, Equatable, Sendable {
     public let ip: IPv4Address
     public let countryCode: String?
     public let countryName: String?

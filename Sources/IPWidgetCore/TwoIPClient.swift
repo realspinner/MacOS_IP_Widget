@@ -4,6 +4,7 @@ public enum TwoIPError: Error, Equatable, Sendable {
     /// The request never reached the server because there is no usable connection.
     case offline
     case httpStatus(Int)
+    case rateLimited(until: Date)
     case invalidResponse
     case cancelled
     case transport(String)
@@ -14,6 +15,8 @@ extension TwoIPError: LocalizedError {
         switch self {
         case .offline:
             return "No internet connection"
+        case .rateLimited(let until):
+            return "2ip.io rate limit; retry after \(until)"
         case .httpStatus(let code):
             return "2ip.io returned HTTP \(code)"
         case .invalidResponse:
@@ -27,9 +30,21 @@ extension TwoIPError: LocalizedError {
 }
 
 public protocol TwoIPServicing: Sendable {
+    func setPreferredProvider(_ provider: IPProvider) async
+    func networkDidChange() async
+    func currentGeoForNetworkTransition() async throws -> GeoInfo
+
     /// The external IPv4 address of the current default route, together with
     /// the country that 2ip.io associates with it.
     func currentGeo() async throws -> GeoInfo
+}
+
+public extension TwoIPServicing {
+    func setPreferredProvider(_ provider: IPProvider) async {}
+    func networkDidChange() async {}
+    func currentGeoForNetworkTransition() async throws -> GeoInfo {
+        try await currentGeo()
+    }
 }
 
 /// Client for the 2ip.io JSON API.
@@ -43,12 +58,14 @@ public protocol TwoIPServicing: Sendable {
 ///
 /// The plain `https://2ip.io/` page is intentionally not used: it rejects
 /// requests from custom user agents with an HTML "loading" page.
-public struct TwoIPClient: TwoIPServicing {
+public final class TwoIPClient: TwoIPServicing {
     public static let apiEndpoint = URL(string: "https://api.2ip.io/")!
 
     private let session: URLSession
+    private let ownsSession: Bool
 
     public init(session: URLSession? = nil) {
+        ownsSession = session == nil
         if let session {
             self.session = session
         } else {
@@ -59,6 +76,10 @@ public struct TwoIPClient: TwoIPServicing {
             configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
             self.session = URLSession(configuration: configuration)
         }
+    }
+
+    deinit {
+        if ownsSession { session.invalidateAndCancel() }
     }
 
     public func currentGeo() async throws -> GeoInfo {

@@ -37,7 +37,12 @@ final class RouteMonitor: @unchecked Sendable {
         )
     }
 
+    deinit {
+        stop()
+    }
+
     func start() {
+        guard fallbackTimer == nil else { return }
         guard let store else {
             logger.error("could not create SCDynamicStore")
             return
@@ -70,7 +75,8 @@ final class RouteMonitor: @unchecked Sendable {
         logger.debug("route monitor started: \(fingerprint.summary, privacy: .public)")
 
         let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now() + 10, repeating: 10)
+        // Notifications handle changes immediately; polling is only a safety net.
+        timer.schedule(deadline: .now() + 60, repeating: 60, leeway: .seconds(10))
         timer.setEventHandler { [weak self] in
             self?.checkFallback()
         }

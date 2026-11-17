@@ -5,8 +5,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 CONFIG="${CONFIG:-release}"
-VERSION="${VERSION:-1.0.22}"
-BUILD_NUMBER="${BUILD_NUMBER:-23}"
+VERSION="${VERSION:-1.1.0}"
+BUILD_NUMBER="${BUILD_NUMBER:-32}"
 
 echo "==> Building IPWidget ($CONFIG)"
 swift build -c "$CONFIG" --product IPWidgetApp
@@ -29,6 +29,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/PlugIns"
 install -m 755 "$BIN_DIR/IPWidgetApp" "$APP/Contents/MacOS/IPWidget"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT/build/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+cp "$ROOT/LICENSE" "$APP/Contents/Resources/LICENSE.txt"
 cp "$ROOT/Sources/IPWidgetCore/Resources/"* "$APP/Contents/Resources/"
 for RESOURCE_BUNDLE in "$BIN_DIR/"*.bundle; do
     [ -d "$RESOURCE_BUNDLE" ] || continue

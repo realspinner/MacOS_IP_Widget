@@ -5,13 +5,16 @@ import IPWidgetUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
-    private let model = ConnectionModel(service: MultiIPClient())
+    private let model = ConnectionModel(service: MultiIPClient(preferredProvider: IPProvider.saved))
     private var coordinator: AppCoordinator?
     private var statusItem: NSStatusItem?
     private var cancellables = Set<AnyCancellable>()
 
     private let defaults = UserDefaults.standard
     private let summaryItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private var providerItems: [IPProvider: NSMenuItem] = [:]
+    private let providerMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let ratingItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let refreshItem = NSMenuItem(title: "", action: nil, keyEquivalent: "r")
     private let addWidgetItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let loginItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
@@ -28,10 +31,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         coordinator.start()
         refreshUI()
 
-        Task { @MainActor [weak self] in
+        Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(1200))
             WidgetRegistration.ensureWidgetEnabled()
-            self?.coordinator?.refreshNow()
         }
 
         if !defaults.bool(forKey: "didShowAddWidgetHelp") {
@@ -41,6 +43,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self?.showAddWidgetHelp()
             }
         }
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard urls.contains(where: { $0.scheme == "ipwidget" }) else { return }
+        coordinator?.refreshNow()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -67,11 +74,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         summaryItem.isEnabled = false
         menu.addItem(summaryItem)
+        ratingItem.isEnabled = false
+        menu.addItem(ratingItem)
         menu.addItem(.separator())
 
         refreshItem.target = self
         refreshItem.action = #selector(refreshNow)
         menu.addItem(refreshItem)
+
+        let providerMenu = NSMenu()
+        providerMenu.autoenablesItems = false
+        for provider in IPProvider.allCases {
+            let option = NSMenuItem(title: provider.title, action: #selector(selectProvider(_:)), keyEquivalent: "")
+            option.target = self
+            option.representedObject = provider.rawValue
+            providerItems[provider] = option
+            providerMenu.addItem(option)
+        }
+        providerMenuItem.submenu = providerMenu
+        menu.addItem(providerMenuItem)
 
         addWidgetItem.title = L10n.t(.addWidgetMenu)
         addWidgetItem.target = self
@@ -124,6 +145,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let summary: String
         let symbol: String
         switch model.status {
+        case .updating:
+            summary = L10n.t(.updatingData)
+            symbol = "questionmark"
         case .loading:
             summary = L10n.t(.statusChecking)
             symbol = "globe"
@@ -133,12 +157,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .unavailable(.noConnection):
             summary = L10n.t(.noConnection)
             symbol = "exclamationmark.triangle.fill"
+        case .unavailable(.appNotRunning):
+            summary = L10n.t(.openApp)
+            symbol = "arrow.up.forward.app"
         case .unavailable(.serviceUnavailable):
             summary = L10n.t(.serviceUnavailable)
             symbol = "exclamationmark.triangle.fill"
         }
 
         summaryItem.title = summary
+        refreshRatingItem()
+        providerMenuItem.title = L10n.t(.preferredIPProvider)
+        for (provider, item) in providerItems {
+            item.state = provider == IPProvider.saved ? .on : .off
+        }
         refreshItem.title = L10n.t(.refreshNow)
         refreshItem.isEnabled = !model.isRefreshing
         addWidgetItem.title = L10n.t(.addWidgetMenu)
@@ -162,11 +194,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem?.button?.toolTip = summary
     }
 
+    private func refreshRatingItem() {
+        guard case .online(let geo) = model.status else {
+            ratingItem.isHidden = true
+            return
+        }
+        ratingItem.isHidden = false
+        guard let rating = model.rating, rating.ip == geo.ip else {
+            ratingItem.title = "rating check..."
+            ratingItem.image = nil
+            return
+        }
+        let label = L10n.t(.ipRating)
+        ratingItem.title = "\(label): \(rating.percent)%" + (rating.isVPNOrProxy ? " · VPN / Proxy" : "")
+        let color = rating.isVPNOrProxy ? NSColor.systemYellow
+            : NSColor(calibratedHue: CGFloat(rating.percent) / 300, saturation: 0.85, brightness: 0.85, alpha: 1)
+        let configuration = NSImage.SymbolConfiguration(paletteColors: [color])
+        ratingItem.image = NSImage(systemSymbolName: rating.isVPNOrProxy ? "lock.shield.fill" : "circle.fill",
+                                  accessibilityDescription: rating.isVPNOrProxy ? "VPN / Proxy" : label)?
+            .withSymbolConfiguration(configuration)
+        ratingItem.toolTip = L10n.t(.ipRatingExplanation)
+    }
+
     func menuWillOpen(_ menu: NSMenu) {
         refreshUI()
     }
 
     // MARK: - Actions
+
+    @objc private func selectProvider(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let provider = IPProvider(rawValue: raw),
+              provider != IPProvider.saved else { return }
+        defaults.set(provider.rawValue, forKey: IPProvider.preferenceKey)
+        coordinator?.changePreferredProvider(provider)
+        refreshUI()
+    }
 
     @objc private func refreshNow() {
         coordinator?.refreshNow()

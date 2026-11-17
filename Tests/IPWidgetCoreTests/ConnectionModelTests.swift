@@ -245,4 +245,20 @@ struct ConnectionModelTests {
         let status = await WidgetSnapshotLoader.status(using: MockTwoIPService(error: .transport("timeout")))
         #expect(status == .unavailable(.serviceUnavailable))
     }
+    @Test func networkUpdateImmediatelyReplacesOldResultAndRejectsOldReply() async {
+        let service = GatedService(geo: geo)
+        let model = makeModel(service: service)
+        model.apply(path: connected)
+        let request = Task { await model.refresh() }
+        await service.waitUntilStarted()
+        model.beginNetworkUpdate()
+        #expect(model.status == .updating)
+        #expect(model.lastCheckedAt != nil)
+        await service.release()
+        await request.value
+        #expect(model.status == .updating)
+        model.apply(path: connected)
+        #expect(model.status == .updating)
+    }
+
 }

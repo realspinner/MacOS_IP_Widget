@@ -1,18 +1,28 @@
 import AppKit
 import SwiftUI
 import WidgetKit
+import os
 
 struct IPWidgetEntry: TimelineEntry {
     let date: Date
     let status: WidgetStatus
+    let lastUpdated: Date?
+    let interfaceName: String?
+    let rating: IPRating?
+
+    init(date: Date, status: WidgetStatus, lastUpdated: Date? = nil, interfaceName: String? = nil, rating: IPRating? = nil) {
+        self.date = date
+        self.status = status
+        self.lastUpdated = lastUpdated
+        self.interfaceName = interfaceName
+        self.rating = rating
+    }
 }
 
 struct IPWidgetProvider: TimelineProvider {
-    private static let service = MultiIPClient()
+    private static let logger = Logger(subsystem: "dev.spinner.ipwidget", category: "widget-file")
     private static let sampleGeo = GeoInfo(
-        ip: IPv4Address(rawValue: 0x2D9F_0C07), // 45.159.12.7
-        countryCode: "SE",
-        countryName: "Sweden"
+        ip: IPv4Address(rawValue: 0x2D9F_0C07), countryCode: "SE", countryName: "Sweden"
     )
 
     func placeholder(in context: Context) -> IPWidgetEntry {
@@ -20,19 +30,28 @@ struct IPWidgetProvider: TimelineProvider {
     }
 
     func getSnapshot(in context: Context, completion: @escaping (IPWidgetEntry) -> Void) {
-        if context.isPreview {
-            completion(IPWidgetEntry(date: Date(), status: .online(Self.sampleGeo)))
-        } else {
-            completion(IPWidgetEntry(date: Date(), status: .loading))
-        }
+        completion(context.isPreview ? placeholder(in: context) : entries(now: Date())[0])
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<IPWidgetEntry>) -> Void) {
-        Task {
-            let status = await WidgetSnapshotLoader.status(using: Self.service)
-            let entry = IPWidgetEntry(date: Date(), status: status)
-            let next = Date().addingTimeInterval(IPWidgetConstants.refreshInterval + Double.random(in: -30...30))
-            completion(Timeline(entries: [entry], policy: .after(next)))
+        // Expiration is a precomputed entry, not a timer or network request.
+        // The companion explicitly reloads this timeline after writing new data.
+        completion(Timeline(entries: entries(now: Date()), policy: .never))
+    }
+
+    private func entries(now: Date) -> [IPWidgetEntry] {
+        do {
+            let snapshot = try SharedWidgetStore.standard().read()
+            let status = snapshot.displayStatus(at: now)
+            Self.logger.info("shared snapshot read; age=\(now.timeIntervalSince(snapshot.checkedAt), privacy: .public)s")
+            let current = IPWidgetEntry(date: now, status: status,
+                                        lastUpdated: snapshot.lastUpdated, interfaceName: snapshot.interfaceName, rating: snapshot.rating)
+            guard status != .unavailable(.appNotRunning) else { return [current] }
+            return [current, IPWidgetEntry(date: snapshot.expiresAt.addingTimeInterval(0.001),
+                                          status: .unavailable(.appNotRunning))]
+        } catch {
+            Self.logger.error("could not read shared snapshot: \(String(describing: error), privacy: .public)")
+            return [IPWidgetEntry(date: now, status: .unavailable(.appNotRunning))]
         }
     }
 }
@@ -68,10 +87,11 @@ struct IPWidgetEntryView: View {
     var body: some View {
         WidgetCard(
             status: entry.status,
-            interfaceName: nil,
-            lastUpdated: entry.date
+            interfaceName: entry.interfaceName,
+            lastUpdated: entry.lastUpdated,
+            rating: entry.rating
         )
-        .widgetURL(URL(string: "https://2ip.io/"))
+        .widgetURL(URL(string: "ipwidget://refresh"))
         .containerBackground(for: .widget) {
             IPWidgetBackground(status: entry.status)
         }

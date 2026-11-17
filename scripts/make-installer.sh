@@ -4,8 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-VERSION="${VERSION:-1.0.22}"
-BUILD_NUMBER="${BUILD_NUMBER:-23}"
+VERSION="${VERSION:-1.1.0}"
+BUILD_NUMBER="${BUILD_NUMBER:-32}"
 CONFIG="${CONFIG:-release}"
 export CONFIG VERSION BUILD_NUMBER
 

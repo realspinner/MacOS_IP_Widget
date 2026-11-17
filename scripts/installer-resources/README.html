@@ -24,9 +24,12 @@
 and flag in the standard small widget size.</p>
 <ul>
     <li>Immediately reacts to system network configuration and default-route changes, including Wi-Fi, Ethernet, and VPN switches.</li>
-    <li>Requests fresh data on network changes and approximately every five minutes. WidgetKit controls final rendering.</li>
-    <li>Uses multiple IP providers and a local country database.</li>
+    <li>Requests fresh data on network changes and approximately every four minutes. WidgetKit controls final rendering.</li>
+    <li>Choose 2ip.io or icanhazip.com as the preferred IP service; the other is used as fallback. The companion shares its result with the widget through a local file.</li>
+    <li>Shows a synthetic IP reputation scale and VPN/proxy indicator. Successful ratings are cached for 24 hours per IP.</li>
+    <li>Reputation is a heuristic and does not guarantee access to any service.</li>
     <li>Shows clear offline and service-unavailable states.</li>
+    <li>Data older than five minutes prompts you to launch IP Widget. Click the widget to open the app.</li>
 </ul>
 <p><b>After installation:</b> open <b>IPWidget</b> in Applications.
 The companion app runs in the menu bar. Keep it running for network-change monitoring.</p>
@@ -37,5 +40,6 @@ search for <b>IP Widget</b>, and add the small widget.</p>
 macOS may block installation or execution on other Macs.</p>
 <p>IP Geolocation by DB-IP — https://db-ip.com. Country Lite data is licensed
 under CC BY 4.0 and converted to a compact IPv4-only format.</p>
+<p>Source code is licensed under the MIT License. Bundled DB-IP data retains its separate CC BY 4.0 license.</p>
 </body>
 </html>

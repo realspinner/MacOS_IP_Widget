@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+    body {
+        font-family: -apple-system, "Helvetica Neue", sans-serif;
+        font-size: 13px;
+        line-height: 1.5;
+        color: #1d1d1f;
+        margin: 0;
+        padding: 4px 2px;
+    }
+    h2 { font-size: 17px; margin: 0 0 8px; }
+    p { margin: 0 0 10px; }
+    ul { margin: 0 0 10px 18px; padding: 0; }
+    li { margin: 0 0 4px; }
+    code { font-family: "SF Mono", Menlo, monospace; font-size: 12px; }
+</style>
+</head>
+<body>
+<h2>IP Widget</h2>
+<p>A native macOS desktop widget showing your public IPv4 address, country name,
+and flag in the standard small widget size.</p>
+<ul>
+    <li>Immediately reacts to system network configuration and default-route changes, including Wi-Fi, Ethernet, and VPN switches.</li>
+    <li>Requests fresh data on network changes and approximately every five minutes. WidgetKit controls final rendering.</li>
+    <li>Uses multiple IP providers and a local country database.</li>
+    <li>Shows clear offline and service-unavailable states.</li>
+</ul>
+<p><b>After installation:</b> open <b>IPWidget</b> in Applications.
+The companion app runs in the menu bar. Keep it running for network-change monitoring.</p>
+<p><b>Add the widget:</b> right-click the desktop, choose <b>Edit Widgets</b>,
+search for <b>IP Widget</b>, and add the small widget.</p>
+<p>Requires macOS 26 or later and an Apple Silicon Mac.</p>
+<p>This build is ad-hoc signed. The installer is unsigned and not notarized;
+macOS may block installation or execution on other Macs.</p>
+<p>IP Geolocation by DB-IP — https://db-ip.com. Country Lite data is licensed
+under CC BY 4.0 and converted to a compact IPv4-only format.</p>
+</body>
+</html>

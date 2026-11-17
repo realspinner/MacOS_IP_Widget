@@ -1,0 +1,27 @@
+# Swift and Apple build products
+.build/
+build/
+dist/
+.swiftpm/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.pkg
+*.dmg
+*.dSYM/
+
+# Local machine state and credentials
+.DS_Store
+.AppleDouble
+.env
+.env.*
+!.env.example
+*.p12
+*.p8
+*.mobileprovision
+*.provisionprofile
+
+# Local working notes (not publication documentation)
+HANDOFF.md
+# Local design reference
+/docs/screenshots/desired-dark.png
